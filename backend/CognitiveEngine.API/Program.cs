@@ -21,4 +21,26 @@ if (app.Environment.IsDevelopment())
 
 app.UseHttpsRedirection();
 app.MapControllers();
+using (var scope = app.Services.CreateScope())
+{
+    var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+
+    // Проверяем, есть ли уже данные
+    if (!db.Organizations.Any())
+    {
+        var org = new Organization { Name = "Test Clinic" };
+        db.Organizations.Add(org);
+
+        db.Users.Add(new User
+        {
+            Email = "admin@test.com",
+            Name = "Admin",
+            Role = "Admin",
+            Organization = org
+        });
+
+        db.SaveChanges();
+    }
+}
+
 app.Run();
