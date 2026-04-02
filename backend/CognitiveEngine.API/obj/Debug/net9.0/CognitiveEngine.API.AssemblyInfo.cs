@@ -13,7 +13,7 @@ using System.Reflection;
 [assembly: System.Reflection.AssemblyCompanyAttribute("CognitiveEngine.API")]
 [assembly: System.Reflection.AssemblyConfigurationAttribute("Debug")]
 [assembly: System.Reflection.AssemblyFileVersionAttribute("1.0.0.0")]
-[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+a973df00f6b032d82f7aed8744fb35c572781b0a")]
+[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+08845c40d51dcf5fcd4b6367cdf02afbaa31fef4")]
 [assembly: System.Reflection.AssemblyProductAttribute("CognitiveEngine.API")]
 [assembly: System.Reflection.AssemblyTitleAttribute("CognitiveEngine.API")]
 [assembly: System.Reflection.AssemblyVersionAttribute("1.0.0.0")]
