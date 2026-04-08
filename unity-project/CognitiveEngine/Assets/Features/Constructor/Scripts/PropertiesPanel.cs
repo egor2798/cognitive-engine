@@ -2,5 +2,14 @@ using UnityEngine;
 
 public class PropertiesPanel : MonoBehaviour
 {
-    // Здесь будут поля для настроек
+    public void ShowTrackProperties(Track track)
+    {
+        if (track == null)
+        {
+            Debug.Log("No track selected");
+            return;
+        }
+
+        Debug.Log($"Track selected. Points count: {track.Points.Count}");
+    }
 }
