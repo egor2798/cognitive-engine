@@ -9,4 +9,5 @@ public class ExerciseData
 
     public List<ShapeData> shapes = new();
     public List<PathData> paths = new();
+    public ExerciseSettingsData settings = new();
 }
