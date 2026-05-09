@@ -3,6 +3,14 @@ using UnityEngine;
 
 public class PacemakerRunner : MonoBehaviour
 {
+    // Speed unit according to the technical specification:
+    // percent of the full track length per minute.
+    // 100 = one full route per 60 seconds, 300 = one full route per 20 seconds.
+    private const float PercentToRoute = 1f / 100f;
+    private const float SecondsPerMinute = 60f;
+    private const float LegacyInternalSpeedMax = 0.02f;
+    private const float LegacyInternalToPercentPerMinute = 100000f;
+
     [SerializeField] private float size = 0.2f;
     [SerializeField] private Color color = Color.red;
 
@@ -15,7 +23,7 @@ public class PacemakerRunner : MonoBehaviour
     private bool forward = true;
     private float progress;
 
-    private List<float> segmentLengths = new();
+    private readonly List<float> segmentLengths = new();
     private float totalLength;
 
     private bool isRunning;
@@ -23,7 +31,7 @@ public class PacemakerRunner : MonoBehaviour
     public void Configure(PacemakerSettingsData s, List<PacemakerTarget> t)
     {
         settings = s;
-        targets = t;
+        targets = t ?? new List<PacemakerTarget>();
 
         currentTargetIndex = 0;
         progress = 0f;
@@ -39,7 +47,8 @@ public class PacemakerRunner : MonoBehaviour
             return;
 
         isRunning = true;
-        visual.SetActive(true);
+        if (visual != null)
+            visual.SetActive(true);
     }
 
     public void StopRunner()
@@ -51,19 +60,55 @@ public class PacemakerRunner : MonoBehaviour
 
     private void Update()
     {
-        if (!isRunning)
+        if (!isRunning || settings == null || targets.Count == 0)
             return;
 
-        progress += settings.speed * 60f * Time.deltaTime;
+        float speedPercentPerMinute = NormalizeSpeedPercentPerMinute(settings.speed);
+        float routePerSecond = speedPercentPerMinute * PercentToRoute / SecondsPerMinute;
+        float delta = routePerSecond * Time.deltaTime;
 
-        if (progress > 1f)
+        if (settings.loopMode == PacemakerLoopMode.PingPong)
         {
-            progress = 0f;
-            NextTarget();
+            progress += forward ? delta : -delta;
+
+            if (progress >= 1f)
+            {
+                progress = 1f;
+                forward = false;
+            }
+            else if (progress <= 0f)
+            {
+                progress = 0f;
+                forward = true;
+            }
+        }
+        else
+        {
+            progress += delta;
+
+            if (progress > 1f)
+            {
+                progress = 0f;
+                NextTarget();
+            }
         }
 
         Vector2 pos = Evaluate(progress);
-        visual.transform.position = new Vector3(pos.x, pos.y, -1f);
+        if (visual != null)
+            visual.transform.position = new Vector3(pos.x, pos.y, -1f);
+    }
+
+    private float NormalizeSpeedPercentPerMinute(float speed)
+    {
+        if (speed <= 0f)
+            return 0f;
+
+        // Old projects stored pacemaker speed as a tiny internal value, e.g. 0.003.
+        // In the new system this corresponds to 300 %/min.
+        if (speed <= LegacyInternalSpeedMax)
+            return speed * LegacyInternalToPercentPerMinute;
+
+        return speed;
     }
 
     private void NextTarget()
@@ -71,32 +116,7 @@ public class PacemakerRunner : MonoBehaviour
         if (targets.Count == 1)
             return;
 
-        if (settings.loopMode == PacemakerLoopMode.Loop)
-        {
-            currentTargetIndex = (currentTargetIndex + 1) % targets.Count;
-        }
-        else
-        {
-            if (forward)
-            {
-                currentTargetIndex++;
-                if (currentTargetIndex >= targets.Count)
-                {
-                    currentTargetIndex = targets.Count - 1;
-                    forward = false;
-                }
-            }
-            else
-            {
-                currentTargetIndex--;
-                if (currentTargetIndex < 0)
-                {
-                    currentTargetIndex = 0;
-                    forward = true;
-                }
-            }
-        }
-
+        currentTargetIndex = (currentTargetIndex + 1) % targets.Count;
         BuildCache();
     }
 
@@ -132,13 +152,19 @@ public class PacemakerRunner : MonoBehaviour
         segmentLengths.Clear();
         totalLength = 0f;
 
+        if (targets.Count == 0)
+            return;
+
         var target = targets[currentTargetIndex];
 
-        if (target.targetType != PacemakerTargetType.Path)
+        if (target.targetType != PacemakerTargetType.Path || target.pathData == null || target.pathData.segments == null)
             return;
 
         foreach (var seg in target.pathData.segments)
         {
+            if (seg == null)
+                continue;
+
             float len = Vector2.Distance(seg.startPoint, seg.endPoint);
             segmentLengths.Add(len);
             totalLength += len;
@@ -157,7 +183,7 @@ public class PacemakerRunner : MonoBehaviour
 
     private Vector2 Path(PathData path, float t)
     {
-        if (path == null || path.segments.Count == 0)
+        if (path == null || path.segments == null || path.segments.Count == 0 || totalLength <= 0f)
             return Vector2.zero;
 
         float dist = t * totalLength;
@@ -166,7 +192,10 @@ public class PacemakerRunner : MonoBehaviour
         for (int i = 0; i < path.segments.Count; i++)
         {
             var seg = path.segments[i];
-            float len = segmentLengths[i];
+            float len = i < segmentLengths.Count ? segmentLengths[i] : Vector2.Distance(seg.startPoint, seg.endPoint);
+
+            if (len <= 0.0001f)
+                continue;
 
             if (acc + len >= dist)
             {
@@ -182,8 +211,14 @@ public class PacemakerRunner : MonoBehaviour
 
     private Vector2 Square(ShapeData s, float t)
     {
-        float hw = s.width / 2;
-        float hh = s.height / 2;
+        if (s == null)
+            return Vector2.zero;
+
+        if (s.shapeType == ShapeType.Circle)
+            return Circle(s, t);
+
+        float hw = s.width / 2f;
+        float hh = s.height / 2f;
 
         Vector2 tl = new(s.center.x - hw, s.center.y + hh);
         Vector2 tr = new(s.center.x + hw, s.center.y + hh);
@@ -192,9 +227,20 @@ public class PacemakerRunner : MonoBehaviour
 
         float p = t * 4f;
 
-        if (p < 1) return Vector2.Lerp(tl, tr, p);
-        if (p < 2) return Vector2.Lerp(tr, br, p - 1);
-        if (p < 3) return Vector2.Lerp(br, bl, p - 2);
-        return Vector2.Lerp(bl, tl, p - 3);
+        if (p < 1f) return Vector2.Lerp(tl, tr, p);
+        if (p < 2f) return Vector2.Lerp(tr, br, p - 1f);
+        if (p < 3f) return Vector2.Lerp(br, bl, p - 2f);
+        return Vector2.Lerp(bl, tl, p - 3f);
+    }
+
+    private Vector2 Circle(ShapeData s, float t)
+    {
+        float radius = Mathf.Max(0.01f, s.radius);
+        float angle = t * Mathf.PI * 2f;
+
+        return new Vector2(
+            s.center.x + Mathf.Cos(angle) * radius,
+            s.center.y + Mathf.Sin(angle) * radius
+        );
     }
 }

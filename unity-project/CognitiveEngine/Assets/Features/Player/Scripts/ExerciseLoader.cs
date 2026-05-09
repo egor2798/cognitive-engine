@@ -12,16 +12,31 @@ public class ExerciseLoader : MonoBehaviour
 
     [Header("Options")]
     [SerializeField] private bool loadOnStart = false;
+    [SerializeField] private bool loadLastProjectFirst = true;
 
     private ExerciseData loadedExercise;
+
+    public ExerciseData LoadedExercise => loadedExercise;
 
     private void Start()
     {
         if (loadOnStart)
             LoadFromJson();
     }
-   
+
     public void LoadFromJson()
+    {
+        ExerciseData exercise = loadLastProjectFirst
+            ? ProjectStorage.LoadLastProjectOrLegacy()
+            : ProjectStorage.LoadLegacyExercise();
+
+        if (exercise == null)
+            return;
+
+        LoadFromExerciseData(exercise);
+    }
+
+    public void LoadFromLegacyJson()
     {
         string path = Path.Combine(Application.persistentDataPath, "exercise.json");
 
@@ -31,19 +46,22 @@ public class ExerciseLoader : MonoBehaviour
             return;
         }
 
-        string json = File.ReadAllText(path);
-        loadedExercise = JsonUtility.FromJson<ExerciseData>(json);
+        ExerciseData exercise = ProjectStorage.LoadExerciseFromPath(path);
 
-        if (loadedExercise == null)
-        {
-            Debug.LogError("ExerciseLoader: failed to parse JSON");
+        if (exercise == null)
             return;
-        }
 
-        ClearScene();
-        BuildExercise(loadedExercise);
+        LoadFromExerciseData(exercise);
+    }
 
-        Debug.Log("Exercise loaded from: " + path);
+    public void LoadProject(string projectName)
+    {
+        ExerciseData exercise = ProjectStorage.LoadProject(projectName);
+
+        if (exercise == null)
+            return;
+
+        LoadFromExerciseData(exercise);
     }
 
     public void LoadFromExerciseData(ExerciseData exercise)
@@ -59,7 +77,7 @@ public class ExerciseLoader : MonoBehaviour
         ClearScene();
         BuildExercise(loadedExercise);
 
-        Debug.Log("Exercise loaded from memory");
+        Debug.Log("ExerciseLoader: exercise loaded: " + loadedExercise.name);
     }
 
     public void StopExercise()
@@ -72,6 +90,10 @@ public class ExerciseLoader : MonoBehaviour
         if (exercise == null)
             return;
 
+        ExerciseSettingsData settings = exercise.settings ?? new ExerciseSettingsData();
+        float lineThickness = settings.lineThickness;
+        bool showTrack = settings.showTrack;
+
         if (exercise.shapes != null)
         {
             for (int i = 0; i < exercise.shapes.Count; i++)
@@ -83,7 +105,7 @@ public class ExerciseLoader : MonoBehaviour
 
                 ShapeElement shapeInstance = Instantiate(shapePrefab, shapesRoot);
                 shapeInstance.name = $"LoadedShape_{i + 1}";
-                shapeInstance.Initialize(shapeData);
+                shapeInstance.Initialize(shapeData, lineThickness, showTrack);
             }
         }
 
@@ -112,8 +134,7 @@ public class ExerciseLoader : MonoBehaviour
 
                     SegmentElement segmentInstance = Instantiate(segmentPrefab, pathInstance.transform);
                     segmentInstance.name = $"LoadedSegment_{j + 1}";
-                    segmentInstance.Initialize(segmentData);
-
+                    segmentInstance.Initialize(segmentData, lineThickness, showTrack);
 
                     pathInstance.AddSegmentElement(segmentInstance);
                 }

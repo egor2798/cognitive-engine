@@ -1,4 +1,3 @@
-using System;
 using System.Collections.Generic;
 using UnityEngine;
 
@@ -8,6 +7,26 @@ public class TrackingEvaluator : MonoBehaviour
     [SerializeField] private PointerTracker pointer;
     [SerializeField] private PacemakerManager manager;
     [SerializeField] private PlayerButtons playerButtons;
+
+    [Header("World To Millimeters Scale")]
+    [Tooltip("Direct conversion from Unity world units to millimeters. For X -4..4 = 1000 mm use 125.")]
+    [SerializeField] private bool useManualWorldToMmScale = true;
+    [SerializeField] private float manualWorldToMmScale = 125f;
+
+    [Tooltip("Use fixed workspace size instead of camera width. This is more stable for constructor/player coordinates.")]
+    [SerializeField] private bool useFixedWorkspaceScale = true;
+    [Tooltip("How many Unity world units correspond to full workspace width. For PointerTracker world X -4..4 use 8.")]
+    [SerializeField] private float workspaceWorldWidthUnits = 8f;
+    [Tooltip("How many Unity world units correspond to full workspace height. Reserved for future vertical scaling checks.")]
+    [SerializeField] private float workspaceWorldHeightUnits = 6f;
+
+    [Header("Movement Metrics Filtering")]
+    [SerializeField] private float speedWarmupSec = 0.25f;
+    [SerializeField] private float minDeltaTimeForSpeedSec = 0.003f;
+    [SerializeField] private float maxReasonablePointerSpeedMmS = 2000f;
+    [SerializeField] private float maxReasonablePacemakerSpeedMmS = 5000f;
+    [SerializeField] private float maxReasonablePointerStepMm = 250f;
+    [SerializeField] private float maxReasonablePacemakerStepMm = 500f;
 
     private SessionResult result;
     private ExerciseData currentExercise;
@@ -24,6 +43,11 @@ public class TrackingEvaluator : MonoBehaviour
 
     private float previousPointerSpeedMmS;
     private float previousPacemakerSpeedMmS;
+
+    private float pointerMovementTimeSec;
+    private float pacemakerMovementTimeSec;
+    private int skippedMovementSamples;
+    private float cachedWorldToMmScale;
 
     private bool pendingOutside;
     private float pendingOutsideStartSec;
@@ -56,6 +80,13 @@ public class TrackingEvaluator : MonoBehaviour
         sumDeviationSqMm = 0f;
 
         hasPreviousPositions = false;
+        previousPointerSpeedMmS = 0f;
+        previousPacemakerSpeedMmS = 0f;
+        pointerMovementTimeSec = 0f;
+        pacemakerMovementTimeSec = 0f;
+        skippedMovementSamples = 0;
+        cachedWorldToMmScale = GetWorldToMmScale();
+        Debug.Log("TrackingEvaluator: worldToMmScale = " + cachedWorldToMmScale);
 
         pendingOutside = false;
         confirmedOutside = false;
@@ -122,7 +153,7 @@ public class TrackingEvaluator : MonoBehaviour
         if (nearestRunner == null)
             return;
 
-        float worldToMm = GetWorldToMmScale();
+        float worldToMm = cachedWorldToMmScale > 0f ? cachedWorldToMmScale : GetWorldToMmScale();
         float deviationMm = nearestDistanceWorld * worldToMm;
 
         float allowedDeviationMm = currentExercise.settings.hitRadiusCm * 10f;
@@ -176,6 +207,8 @@ public class TrackingEvaluator : MonoBehaviour
         Debug.Log("Auto mean deviation: " + finalResult.meanDeviationMm);
         Debug.Log("Auto max deviation: " + finalResult.maxDeviationMm);
         Debug.Log("Auto time outside pct: " + finalResult.timeOutsidePct);
+        Debug.Log("Auto pointer path mm: " + finalResult.pointerPathLengthMm);
+        Debug.Log("Auto pacemaker path mm: " + finalResult.pacemakerPathLengthMm);
 
         if (playerButtons != null)
             playerButtons.StopAll();
@@ -252,26 +285,56 @@ public class TrackingEvaluator : MonoBehaviour
         float pointerStepMm = Vector2.Distance(pointerPos, previousPointerPos) * worldToMm;
         float pacemakerStepMm = Vector2.Distance(pacemakerPos, previousPacemakerPos) * worldToMm;
 
-        result.pointerPathLengthMm += pointerStepMm;
-        result.pacemakerPathLengthMm += pacemakerStepMm;
+        previousPointerPos = pointerPos;
+        previousPacemakerPos = pacemakerPos;
+
+        if (result.totalTimeSec < speedWarmupSec || dt < minDeltaTimeForSpeedSec)
+        {
+            skippedMovementSamples++;
+            return;
+        }
 
         float pointerSpeedMmS = pointerStepMm / dt;
         float pacemakerSpeedMmS = pacemakerStepMm / dt;
 
-        result.meanPointerSpeedMmS += pointerSpeedMmS * dt;
-        result.meanPacemakerSpeedMmS += pacemakerSpeedMmS * dt;
+        bool pointerSampleOk = pointerStepMm <= maxReasonablePointerStepMm && pointerSpeedMmS <= maxReasonablePointerSpeedMmS;
+        bool pacemakerSampleOk = pacemakerStepMm <= maxReasonablePacemakerStepMm && pacemakerSpeedMmS <= maxReasonablePacemakerSpeedMmS;
 
-        if (pointerSpeedMmS > result.maxPointerSpeedMmS)
-            result.maxPointerSpeedMmS = pointerSpeedMmS;
+        // Path length should not collapse to zero just because one frame contains a technical spike.
+        // For the integral path metric we use a capped step: normal samples are counted as-is,
+        // and rare spikes are clipped to a reasonable physical maximum instead of being discarded.
+        float pointerStepForPathMm = pointerSampleOk ? pointerStepMm : Mathf.Min(pointerStepMm, maxReasonablePointerStepMm);
+        float pacemakerStepForPathMm = pacemakerSampleOk ? pacemakerStepMm : Mathf.Min(pacemakerStepMm, maxReasonablePacemakerStepMm);
 
-        if (pacemakerSpeedMmS > result.maxPacemakerSpeedMmS)
-            result.maxPacemakerSpeedMmS = pacemakerSpeedMmS;
+        result.pointerPathLengthMm += pointerStepForPathMm;
+        result.pacemakerPathLengthMm += pacemakerStepForPathMm;
+        pointerMovementTimeSec += dt;
+        pacemakerMovementTimeSec += dt;
 
-        previousPointerSpeedMmS = pointerSpeedMmS;
-        previousPacemakerSpeedMmS = pacemakerSpeedMmS;
+        float pointerSpeedForStopMmS = pointerStepForPathMm / dt;
+        previousPointerSpeedMmS = pointerSpeedForStopMmS;
 
-        previousPointerPos = pointerPos;
-        previousPacemakerPos = pacemakerPos;
+        if (pointerSampleOk)
+        {
+            if (pointerSpeedMmS > result.maxPointerSpeedMmS)
+                result.maxPointerSpeedMmS = pointerSpeedMmS;
+        }
+        else
+        {
+            skippedMovementSamples++;
+        }
+
+        if (pacemakerSampleOk)
+        {
+            if (pacemakerSpeedMmS > result.maxPacemakerSpeedMmS)
+                result.maxPacemakerSpeedMmS = pacemakerSpeedMmS;
+
+            previousPacemakerSpeedMmS = pacemakerSpeedMmS;
+        }
+        else
+        {
+            skippedMovementSamples++;
+        }
     }
 
     private void UpdateStops()
@@ -360,22 +423,46 @@ public class TrackingEvaluator : MonoBehaviour
         result.lagTimePct = 100f * result.lagTimeSec / total;
         result.leadTimePct = 100f * result.leadTimeSec / total;
 
-        result.meanPointerSpeedMmS /= total;
-        result.meanPacemakerSpeedMmS /= total;
+        float pointerTime = Mathf.Max(0.0001f, pointerMovementTimeSec);
+        float pacemakerTime = Mathf.Max(0.0001f, pacemakerMovementTimeSec);
+
+        // Mean speed is derived from the already converted path length in millimeters.
+        // This keeps path length and speed in the same units and avoids unit mismatch.
+        result.meanPointerSpeedMmS = result.pointerPathLengthMm / pointerTime;
+        result.meanPacemakerSpeedMmS = result.pacemakerPathLengthMm / pacemakerTime;
+
+        if (skippedMovementSamples > 0)
+            Debug.Log("TrackingEvaluator: skipped movement samples = " + skippedMovementSamples);
     }
 
     private float GetWorldToMmScale()
     {
-        float widthWorld = 10f;
-        float widthMm = currentExercise.settings.workspaceWidthMm;
+        // Most stable mode for this project: explicit conversion from Unity units to millimeters.
+        // PointerTracker currently uses approximately X -4..4 for 1000 mm workspace width,
+        // therefore 1 Unity unit = 125 mm.
+        if (useManualWorldToMmScale)
+            return Mathf.Max(0.0001f, manualWorldToMmScale);
 
-        if (Camera.main != null && Camera.main.orthographic)
-            widthWorld = Camera.main.orthographicSize * 2f * Camera.main.aspect;
-
-        if (widthWorld <= 0.0001f)
+        if (currentExercise == null || currentExercise.settings == null)
             return 1f;
 
-        return widthMm / widthWorld;
+        float widthMm = Mathf.Max(1f, currentExercise.settings.workspaceWidthMm);
+
+        if (useFixedWorkspaceScale)
+        {
+            float widthWorld = Mathf.Max(0.0001f, workspaceWorldWidthUnits);
+            return widthMm / widthWorld;
+        }
+
+        float cameraWidthWorld = 10f;
+
+        if (Camera.main != null && Camera.main.orthographic)
+            cameraWidthWorld = Camera.main.orthographicSize * 2f * Camera.main.aspect;
+
+        if (cameraWidthWorld <= 0.0001f)
+            return 1f;
+
+        return widthMm / cameraWidthWorld;
     }
 
     public SessionResult GetCurrentResult()

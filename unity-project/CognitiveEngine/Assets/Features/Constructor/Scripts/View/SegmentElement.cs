@@ -3,10 +3,15 @@ using UnityEngine;
 
 public class SegmentElement : MonoBehaviour
 {
+    private const float DefaultLineThickness = 6f;
+    private const float ThicknessToWorldWidth = 0.01f;
+    private const float SelectedWidthMultiplier = 1.55f;
+
     [SerializeField] private LineRenderer lineRenderer;
 
-    private const float NormalWidth = 0.15f;
-    private const float SelectedWidth = 0.2f;
+    [Header("Runtime Style")]
+    [SerializeField] private float lineThickness = DefaultLineThickness;
+    [SerializeField] private bool showTrack = true;
 
     private bool isSelected;
 
@@ -27,6 +32,36 @@ public class SegmentElement : MonoBehaviour
         Rebuild();
     }
 
+    public void Initialize(SegmentData data, float settingsLineThickness, bool settingsShowTrack)
+    {
+        Data = data;
+        lineThickness = settingsLineThickness;
+        showTrack = settingsShowTrack;
+        SetupLineRenderer();
+        Rebuild();
+    }
+
+    public void ApplyExerciseVisualSettings(ExerciseSettingsData settings)
+    {
+        if (settings == null)
+            return;
+
+        SetLineThickness(settings.lineThickness);
+        SetTrackVisible(settings.showTrack);
+    }
+
+    public void SetLineThickness(float thickness)
+    {
+        lineThickness = Mathf.Max(0.1f, thickness);
+        ApplyStyle();
+    }
+
+    public void SetTrackVisible(bool visible)
+    {
+        showTrack = visible;
+        ApplyStyle();
+    }
+
     public void SetSelected(bool selected)
     {
         isSelected = selected;
@@ -35,7 +70,7 @@ public class SegmentElement : MonoBehaviour
 
     public void Rebuild()
     {
-        if (Data == null)
+        if (Data == null || lineRenderer == null)
             return;
 
         List<Vector3> points = BuildPoints();
@@ -92,13 +127,15 @@ public class SegmentElement : MonoBehaviour
         if (lineRenderer == null)
             return;
 
-        float width = isSelected ? SelectedWidth : NormalWidth;
+        float baseWidth = Mathf.Max(0.001f, lineThickness * ThicknessToWorldWidth);
+        float width = isSelected ? baseWidth * SelectedWidthMultiplier : baseWidth;
+
+        lineRenderer.enabled = showTrack;
         lineRenderer.startWidth = width;
         lineRenderer.endWidth = width;
 
-        Color normalColor = new Color32(19, 78, 92, 255);     // тЄмно-бирюзовый
-        Color selectedColor = new Color32(39, 199, 217, 255); // €ркий акцент
-
+        Color normalColor = new Color32(19, 78, 92, 255);
+        Color selectedColor = new Color32(39, 199, 217, 255);
         Color finalColor = isSelected ? selectedColor : normalColor;
 
         lineRenderer.startColor = finalColor;

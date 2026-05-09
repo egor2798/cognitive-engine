@@ -1,19 +1,60 @@
-using System.IO;
 using System.Collections.Generic;
+using System.IO;
 using UnityEngine;
 
 public class ExerciseSaver : MonoBehaviour
 {
     [SerializeField] private TrackEditor trackEditor;
 
+    public ExerciseData CurrentExercise
+    {
+        get
+        {
+            if (trackEditor == null)
+                return null;
+
+            return trackEditor.CurrentExercise;
+        }
+    }
+
     public void SaveToJson()
+    {
+        SaveLegacyJson();
+    }
+
+    public void SaveLegacyJson()
+    {
+        ExerciseData exercise = GetPreparedExercise();
+
+        if (exercise == null)
+            return;
+
+        string json = JsonUtility.ToJson(exercise, true);
+        string path = Path.Combine(Application.persistentDataPath, "exercise.json");
+        File.WriteAllText(path, json);
+
+        Debug.Log("ExerciseSaver: saved legacy exercise to: " + path);
+    }
+
+    public string SaveProject(string projectName)
+    {
+        ExerciseData exercise = GetPreparedExercise();
+
+        if (exercise == null)
+            return null;
+
+        return ProjectStorage.SaveProject(exercise, projectName, true);
+    }
+
+    private ExerciseData GetPreparedExercise()
     {
         if (trackEditor == null || trackEditor.CurrentExercise == null)
         {
-            Debug.LogError("No exercise to save");
-            return;
+            Debug.LogError("ExerciseSaver: no exercise to save");
+            return null;
         }
 
+        PrepareSettings(trackEditor.CurrentExercise);
         PreparePacemakers(trackEditor.CurrentExercise);
 
         Debug.Log("Shapes count: " + trackEditor.CurrentExercise.shapes.Count);
@@ -23,12 +64,17 @@ public class ExerciseSaver : MonoBehaviour
                 ? trackEditor.CurrentExercise.settings.pacemakers.Count
                 : -1));
 
-        string json = JsonUtility.ToJson(trackEditor.CurrentExercise, true);
+        return trackEditor.CurrentExercise;
+    }
 
-        string path = Path.Combine(Application.persistentDataPath, "exercise.json");
-        File.WriteAllText(path, json);
+    private void PrepareSettings(ExerciseData exercise)
+    {
+        if (exercise.settings == null)
+            exercise.settings = new ExerciseSettingsData();
 
-        Debug.Log("Saved to: " + path);
+        exercise.settings.inputSource = exercise.settings.useSensor
+            ? PointerInputSource.Sensor
+            : PointerInputSource.Mouse;
     }
 
     private void PreparePacemakers(ExerciseData exercise)
@@ -66,7 +112,7 @@ public class ExerciseSaver : MonoBehaviour
             id = System.Guid.NewGuid().ToString(),
             enabled = true,
             speed = exercise.settings.defaultSpeed,
-            loopMode = PacemakerLoopMode.Loop,
+            loopMode = exercise.settings.defaultPacemakerLoopMode,
             targetIds = new List<string> { targetId }
         };
 

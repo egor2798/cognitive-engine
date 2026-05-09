@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using UnityEngine;
 using UnityEngine.EventSystems;
 using UnityEngine.InputSystem;
+using TMPro;
 
 public class TrackEditor : MonoBehaviour
 {
@@ -23,6 +24,8 @@ public class TrackEditor : MonoBehaviour
     [SerializeField] private SegmentElement segmentPrefab;
     [SerializeField] private RectTransform workspacePanel;
     [SerializeField] private RectTransform workspaceView;
+    [SerializeField] private PropertiesPanel propertiesPanel;
+    [SerializeField] private TMP_Text modeText;
 
     [Header("Default Shape Sizes")]
     [SerializeField] private float defaultSquareWidth = 1f;
@@ -65,6 +68,7 @@ public class TrackEditor : MonoBehaviour
             mainCamera = Camera.main;
 
         CreateNewExercise();
+        UpdateModeText();
     }
 
     private void Update()
@@ -237,6 +241,52 @@ public class TrackEditor : MonoBehaviour
         isDraggingSegment = false;
         isResizingShape = false;
         CurrentTool = toolMode;
+        UpdateModeText();
+    }
+
+    public void SetSelectTool()
+    {
+        SetTool(ToolMode.Select);
+    }
+
+    public void SetLineTool()
+    {
+        SetTool(ToolMode.AddPath);
+    }
+
+    public void SetSquareTool()
+    {
+        SetTool(ToolMode.AddSquare);
+    }
+
+    public void SetCircleTool()
+    {
+        SetTool(ToolMode.AddCircle);
+    }
+
+    private void UpdateModeText()
+    {
+        if (modeText == null)
+            return;
+
+        modeText.text = "Режим: " + GetToolLabel(CurrentTool);
+    }
+
+    private string GetToolLabel(ToolMode toolMode)
+    {
+        switch (toolMode)
+        {
+            case ToolMode.Select:
+                return "Select";
+            case ToolMode.AddPath:
+                return "Line";
+            case ToolMode.AddSquare:
+                return "Square";
+            case ToolMode.AddCircle:
+                return "Circle";
+            default:
+                return toolMode.ToString();
+        }
     }
 
     public void ClearAllShapes()
@@ -281,6 +331,9 @@ public class TrackEditor : MonoBehaviour
 
         Destroy(selectedShape.gameObject);
         selectedShape = null;
+
+        if (propertiesPanel != null)
+            propertiesPanel.ShowEmpty();
     }
 
     private void DeleteSelectedSegment()
@@ -294,6 +347,9 @@ public class TrackEditor : MonoBehaviour
         Destroy(selectedSegment.gameObject);
 
         selectedSegment = null;
+
+        if (propertiesPanel != null)
+            propertiesPanel.ShowEmpty();
 
         if (selectedPath.Data.segments.Count == 0)
         {
@@ -458,6 +514,14 @@ public class TrackEditor : MonoBehaviour
         instance.Initialize(data);
 
         createdShapes.Add(instance);
+
+        // После создания сразу выбираем фигуру и показываем её реальные размеры справа.
+        ClearSelection();
+        selectedShape = instance;
+        selectedShape.SetSelected(true);
+
+        if (propertiesPanel != null)
+            propertiesPanel.ShowShapeProperties(selectedShape);
     }
 
     private void AddPathPoint(Vector3 point)
@@ -576,6 +640,10 @@ public class TrackEditor : MonoBehaviour
             selectedSegment = nearestSegment;
             selectedPath = nearestSegmentPath;
             selectedSegment.SetSelected(true);
+
+            if (propertiesPanel != null)
+                propertiesPanel.ShowSegmentProperties(selectedSegment);
+
             return;
         }
 
@@ -600,6 +668,13 @@ public class TrackEditor : MonoBehaviour
         {
             selectedShape = nearestShape;
             selectedShape.SetSelected(true);
+
+            if (propertiesPanel != null)
+                propertiesPanel.ShowShapeProperties(selectedShape);
+        }
+        else if (propertiesPanel != null)
+        {
+            propertiesPanel.ShowEmpty();
         }
     }
 
@@ -660,6 +735,9 @@ public class TrackEditor : MonoBehaviour
         Vector2 targetCenter = worldPoint - dragOffset;
         selectedShape.Data.center = targetCenter;
         selectedShape.Rebuild();
+
+        if (propertiesPanel != null)
+            propertiesPanel.ShowShapeProperties(selectedShape);
     }
 
     private void DragSelectedSegment(Vector2 worldPoint)
@@ -681,6 +759,9 @@ public class TrackEditor : MonoBehaviour
         }
 
         selectedSegment.Rebuild();
+
+        if (propertiesPanel != null)
+            propertiesPanel.ShowSegmentProperties(selectedSegment);
     }
 
     private Vector2 GetSegmentCenter(SegmentData data)
@@ -703,6 +784,37 @@ public class TrackEditor : MonoBehaviour
         isDraggingShape = false;
         isDraggingSegment = false;
         isResizingShape = false;
+
+        if (propertiesPanel != null)
+            propertiesPanel.ShowEmpty();
+    }
+
+    public void ApplyVisualSettingsFromCurrentExercise()
+    {
+        if (CurrentExercise == null || CurrentExercise.settings == null)
+            return;
+
+        for (int i = 0; i < shapesRoot.childCount; i++)
+        {
+            Transform child = shapesRoot.GetChild(i);
+            if (child != null)
+                child.gameObject.SendMessage("ApplyExerciseVisualSettings", CurrentExercise.settings, SendMessageOptions.DontRequireReceiver);
+        }
+
+        for (int i = 0; i < pathsRoot.childCount; i++)
+        {
+            PathElement path = pathsRoot.GetChild(i).GetComponent<PathElement>();
+            if (path == null)
+                continue;
+
+            var segments = path.SegmentElements;
+            for (int j = 0; j < segments.Count; j++)
+            {
+                SegmentElement segment = segments[j];
+                if (segment != null)
+                    segment.gameObject.SendMessage("ApplyExerciseVisualSettings", CurrentExercise.settings, SendMessageOptions.DontRequireReceiver);
+            }
+        }
     }
 
     private float GetDistanceToShape(ShapeElement shape, Vector3 point)

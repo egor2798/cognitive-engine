@@ -4,12 +4,20 @@ using UnityEngine;
 [RequireComponent(typeof(LineRenderer))]
 public class ShapeElement : MonoBehaviour
 {
-    private const float NormalWidth = 0.07f;
-    private const float SelectedWidth = 0.11f;
+    private const float DefaultLineThickness = 6f;
+    private const float ThicknessToWorldWidth = 0.01f;
+    private const float SelectedWidthMultiplier = 1.55f;
 
     [SerializeField] private LineRenderer lineRenderer;
     [SerializeField] private int circleSegments = 64;
     [SerializeField] private ShapeData data = new ShapeData();
+
+    [Header("Runtime Style")]
+    [SerializeField] private float lineThickness = DefaultLineThickness;
+    [SerializeField] private bool showTrack = true;
+
+    [Header("Resize Handle")]
+    [SerializeField] private bool hideResizeHandleObjects = true;
 
     private readonly List<Vector3> points = new();
     private bool isSelected;
@@ -27,13 +35,8 @@ public class ShapeElement : MonoBehaviour
         if (lineRenderer == null)
             lineRenderer = GetComponent<LineRenderer>();
 
-        if (lineRenderer != null)
-        {
-            lineRenderer.useWorldSpace = true;
-            lineRenderer.alignment = LineAlignment.View;
-            lineRenderer.textureMode = LineTextureMode.Stretch;
-        }
-
+        SetupLineRenderer();
+        HideResizeHandleObjects();
         Rebuild();
     }
 
@@ -43,11 +46,42 @@ public class ShapeElement : MonoBehaviour
         Rebuild();
     }
 
+    public void Initialize(ShapeData newData, float settingsLineThickness, bool settingsShowTrack)
+    {
+        data = newData;
+        lineThickness = settingsLineThickness;
+        showTrack = settingsShowTrack;
+        Rebuild();
+    }
+
+    public void ApplyExerciseVisualSettings(ExerciseSettingsData settings)
+    {
+        if (settings == null)
+            return;
+
+        SetLineThickness(settings.lineThickness);
+        SetTrackVisible(settings.showTrack);
+    }
+
+    public void SetLineThickness(float thickness)
+    {
+        lineThickness = Mathf.Max(0.1f, thickness);
+        ApplyStyle();
+    }
+
+    public void SetTrackVisible(bool visible)
+    {
+        showTrack = visible;
+        ApplyStyle();
+    }
+
     public void Rebuild()
     {
         if (data == null || lineRenderer == null)
             return;
 
+        SetupLineRenderer();
+        HideResizeHandleObjects();
         points.Clear();
 
         switch (data.shapeType)
@@ -73,6 +107,8 @@ public class ShapeElement : MonoBehaviour
 
     public bool SupportsResizeHandle()
     {
+        // Resize через мышь оставляем, но визуальный белый handle скрываем.
+        // Тянуть можно за правый верхний угол квадрата или за правую точку круга.
         return true;
     }
 
@@ -112,6 +148,57 @@ public class ShapeElement : MonoBehaviour
         Rebuild();
     }
 
+
+    private void HideResizeHandleObjects()
+    {
+        if (!hideResizeHandleObjects)
+            return;
+
+        // На старом prefab могла остаться отдельная белая точка/квадрат для resize.
+        // Размер теперь редактируется через правую панель "Свойства", поэтому такие
+        // дочерние объекты отключаем, чтобы их не путали с началом координат.
+        for (int i = transform.childCount - 1; i >= 0; i--)
+        {
+            Transform child = transform.GetChild(i);
+
+            string n = child.name.ToLowerInvariant();
+            bool looksLikeHandle =
+                n.Contains("handle") ||
+                n.Contains("resize") ||
+                n.Contains("corner") ||
+                n.Contains("point") ||
+                n.Contains("marker");
+
+            // Если у ShapeElement есть дочерний SpriteRenderer/Image без понятного имени,
+            // это почти наверняка старый resize-handle. LineRenderer самой фигуры находится
+            // на этом объекте, не на дочернем.
+            bool hasVisual =
+                child.GetComponent<SpriteRenderer>() != null ||
+                child.GetComponent<UnityEngine.UI.Image>() != null ||
+                child.GetComponent<Renderer>() != null;
+
+            if (looksLikeHandle || hasVisual)
+                child.gameObject.SetActive(false);
+        }
+    }
+
+    private void SetupLineRenderer()
+    {
+        if (lineRenderer == null)
+            return;
+
+        lineRenderer.useWorldSpace = true;
+        lineRenderer.alignment = LineAlignment.View;
+        lineRenderer.textureMode = LineTextureMode.Stretch;
+
+        if (lineRenderer.sharedMaterial == null)
+        {
+            Shader shader = Shader.Find("Sprites/Default");
+            if (shader != null)
+                lineRenderer.sharedMaterial = new Material(shader);
+        }
+    }
+
     private Vector3 GetClosestResizeHandle()
     {
         switch (data.shapeType)
@@ -147,7 +234,6 @@ public class ShapeElement : MonoBehaviour
         points.Add(bottomRight);
         points.Add(bottomLeft);
 
-        lineRenderer.enabled = true;
         lineRenderer.loop = true;
         lineRenderer.positionCount = 4;
         lineRenderer.SetPosition(0, topLeft);
@@ -160,7 +246,6 @@ public class ShapeElement : MonoBehaviour
     {
         data.radius = Mathf.Max(0.05f, data.radius);
 
-        lineRenderer.enabled = true;
         lineRenderer.loop = true;
 
         int segments = Mathf.Max(24, circleSegments);
@@ -187,11 +272,14 @@ public class ShapeElement : MonoBehaviour
         if (lineRenderer == null)
             return;
 
-        float widthValue = isSelected ? SelectedWidth : NormalWidth;
+        float baseWidth = Mathf.Max(0.001f, lineThickness * ThicknessToWorldWidth);
+        float widthValue = isSelected ? baseWidth * SelectedWidthMultiplier : baseWidth;
+
         Color normalColor = new Color32(19, 78, 92, 255);
         Color selectedColor = new Color32(39, 199, 217, 255);
         Color finalColor = isSelected ? selectedColor : normalColor;
 
+        lineRenderer.enabled = showTrack;
         lineRenderer.startWidth = widthValue;
         lineRenderer.endWidth = widthValue;
         lineRenderer.startColor = finalColor;
