@@ -1,0 +1,67 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Cognitive Engine Web</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <header class="topbar">
+    <div>
+      <div class="eyebrow">Cognitive Engine</div>
+      <h1>API + Web-панель</h1>
+      <p>Демо-подключение сайта к backend/API и базе данных</p>
+    </div>
+    <a class="swagger" href="/swagger" target="_blank">Swagger</a>
+  </header>
+
+  <main>
+    <section class="grid cards" id="dashboardCards">
+      <div class="card skeleton">Загрузка данных...</div>
+    </section>
+
+    <section class="panel">
+      <div class="panel-title">
+        <h2>Справочник точек тела</h2>
+        <button onclick="loadBodyPoints()">Обновить</button>
+      </div>
+      <div id="bodyPoints" class="body-points"></div>
+    </section>
+
+    <section class="grid two">
+      <div class="panel">
+        <div class="panel-title">
+          <h2>Упражнения</h2>
+          <button onclick="loadExercises()">Обновить</button>
+        </div>
+        <div id="exercises" class="list"></div>
+      </div>
+
+      <div class="panel">
+        <div class="panel-title">
+          <h2>Сессии и метрики</h2>
+          <button onclick="loadSessions()">Обновить</button>
+        </div>
+        <div id="sessions" class="list"></div>
+      </div>
+    </section>
+
+    <section class="panel accent">
+      <h2>Импорт результата из Unity</h2>
+      <p>
+        Можно выбрать <code>session_result.json</code>. Файл будет отправлен в API,
+        после чего появится новая сессия, события, samples и метрики.
+      </p>
+      <div class="actions">
+        <input type="file" id="jsonFile" accept=".json,application/json" />
+        <button onclick="importJson()">Импортировать JSON</button>
+        <button onclick="createDemoSession()">Создать демо-сессию</button>
+      </div>
+      <pre id="importResult"></pre>
+    </section>
+  </main>
+
+  <script src="app.js"></script>
+</body>
+</html>

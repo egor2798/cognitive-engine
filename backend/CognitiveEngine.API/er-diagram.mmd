@@ -1,0 +1,106 @@
+erDiagram
+    %% ============================================================
+    %% Cognitive Engine — ER-схема (Документ 07)
+    %% Сгенерирована из EF Core моделей.
+    %% ============================================================
+
+    organizations ||--o{ users               : "имеет"
+    organizations ||--o{ patients            : "имеет"
+    organizations ||--o{ devices             : "владеет"
+    organizations ||--o{ exercise_templates  : "хранит"
+
+    users        ||--o{ refresh_tokens       : ""
+    users        ||--o{ password_reset_tokens: ""
+    users        ||--o{ login_attempts       : ""
+
+    patients     ||--o{ consents             : ""
+    patients     ||--o{ sessions             : ""
+    patients     ||--o{ exercises            : "назначены"
+    patients     ||--o{ free_traces          : ""
+    patients     ||--o{ derived_tracks       : ""
+    patients     ||--o{ comments             : ""
+
+    devices              ||--o{ trackers              : "оснащён"
+    devices              ||--o{ calibration_profiles  : "имеет"
+    devices              ||--|| calibration_profiles  : "активный"
+    calibration_profiles ||--o{ sessions              : "снимок при старте"
+
+    body_points  ||--o{ trackers          : "закреплён"
+    body_points  ||--o{ session_samples   : "ссылка"
+    body_points  ||--o{ free_traces       : ""
+
+    exercise_templates  ||--o{ exercises          : "инстансы"
+    exercise_templates  ||--o{ exercise_templates : "previous_version"
+    exercises           ||--o{ sessions           : "прохождения"
+
+    sessions    ||--o{ session_samples : "телеметрия (HOT)"
+    sessions    ||--o{ session_events  : "журнал"
+    sessions    ||--o{ metrics         : "показатели"
+    sessions    ||--o{ reports         : "отчёты"
+    sessions    ||--o{ comments        : ""
+    sessions    ||--o{ audit_logs      : ""
+    sessions    ||--o{ idempotency_keys: ""
+
+    free_traces ||--o{ derived_tracks      : "источник"
+    derived_tracks ||--o| exercise_templates: "patient_template"
+
+    reports     ||--o{ exports          : ""
+    trackers    ||--o{ session_samples  : ""
+    trackers    ||--o{ session_events   : ""
+
+    %% — справочник 11 точек тела —
+    body_points {
+        int id PK
+        string code  "BP-01..BP-11"
+        string name
+        int side     "1=center 2=left 3=right"
+        int group    "1..7 (UX-секции)"
+        int order_index
+    }
+
+    %% — горячая таблица телеметрии —
+    session_samples {
+        bigserial id PK
+        int session_id FK
+        int kind            "1=Cursor 2=Pacer"
+        bigint sample_index "идемпотентность batch"
+        numeric t           "сек от старта"
+        int slot_index
+        string cursor_ref
+        string pacer_ref
+        string track_ref
+        string body_point_zone_ref
+        int body_point_id FK
+        int tracker_id FK
+        numeric raw_x
+        numeric raw_y
+        numeric corrected_x
+        numeric corrected_y
+        numeric xmm
+        numeric ymm
+        numeric speed
+        bool inside_zone
+        bool inside_corridor
+        numeric distance_to_track_center_mm
+        numeric distance_to_corridor_border_mm
+        int signal_status
+        jsonb extra_json
+    }
+
+    %% — иммутабельный снимок при старте —
+    sessions {
+        serial id PK
+        int exercise_id FK
+        int patient_id FK
+        int operator_id FK
+        int device_id FK
+        int calibration_profile_id FK
+        string template_version
+        timestamp started_at
+        timestamp finished_at
+        int status
+        jsonb exercise_config_snapshot
+        jsonb calibration_snapshot
+        string config_hash
+        bool was_offline
+    }

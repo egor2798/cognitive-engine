@@ -1,0 +1,43 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: cognitive-engine-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: cognitive_engine
+      POSTGRES_USER: cogengine
+      POSTGRES_PASSWORD: cogengine_dev_pwd
+      TZ: Europe/Moscow
+    ports:
+      - "5432:5432"
+    volumes:
+      - cognitive_pgdata:/var/lib/postgresql/data
+      # init и сид прогоняются при первом старте контейнера (на пустом томе)
+      - ./db/init.sql:/docker-entrypoint-initdb.d/01-init.sql:ro
+      - ./db/seed.sql:/docker-entrypoint-initdb.d/02-seed.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U cogengine -d cognitive_engine"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  pgadmin:
+    image: dpage/pgadmin4:latest
+    container_name: cognitive-engine-pgadmin
+    restart: unless-stopped
+    environment:
+      PGADMIN_DEFAULT_EMAIL: admin@local
+      PGADMIN_DEFAULT_PASSWORD: admin
+      PGADMIN_CONFIG_SERVER_MODE: "False"
+      PGADMIN_CONFIG_MASTER_PASSWORD_REQUIRED: "False"
+    ports:
+      - "5050:80"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    volumes:
+      - cognitive_pgadmin:/var/lib/pgadmin
+
+volumes:
+  cognitive_pgdata:
+  cognitive_pgadmin:
